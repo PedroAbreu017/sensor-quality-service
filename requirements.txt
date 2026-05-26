@@ -6,3 +6,4 @@ psycopg2-binary
 aio-pika
 python-dotenv
 pytest
+httpx

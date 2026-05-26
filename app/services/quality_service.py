@@ -1,6 +1,6 @@
 import logging
 import psycopg2
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 from app.config import get_settings
@@ -21,8 +21,19 @@ class QualityService:
             conn = get_connection()
             cur = conn.cursor()
 
-            # Total and quality breakdown
-            query = """
+            conditions = []
+            params = []
+
+            if start:
+                conditions.append("timestamp >= %s")
+                params.append(start)
+            if end:
+                conditions.append("timestamp <= %s")
+                params.append(end)
+
+            where = "WHERE " + " AND ".join(conditions) if conditions else ""
+
+            query = f"""
                 SELECT
                     COUNT(*) as total,
                     SUM(CASE WHEN quality = 'saudavel' THEN 1 ELSE 0 END) as healthy,
@@ -30,18 +41,10 @@ class QualityService:
                     SUM(CASE WHEN quality LIKE '%spike%' THEN 1 ELSE 0 END) as spike,
                     SUM(CASE WHEN quality LIKE '%congelado%' THEN 1 ELSE 0 END) as frozen
                 FROM sensor_readings
-                WHERE 1=1
+                {where}
             """
-            params = []
 
-            if start:
-                query += " AND timestamp >= %s"
-                params.append(start)
-            if end:
-                query += " AND timestamp <= %s"
-                params.append(end)
-
-            cur.execute(query, params)
+            cur.execute(query, params if params else None)
             row = cur.fetchone()
 
             total = row[0] or 0
@@ -49,11 +52,9 @@ class QualityService:
             outlier = row[2] or 0
             spike = row[3] or 0
             frozen = row[4] or 0
-            duplicate = outlier
 
             health_score = round((healthy / total * 100), 2) if total > 0 else 0.0
 
-            # Top anomalous tags
             cur.execute("""
                 SELECT
                     t.id,
@@ -92,7 +93,7 @@ class QualityService:
                 outlier_records=outlier,
                 spike_records=spike,
                 frozen_records=frozen,
-                duplicate_records=duplicate,
+                duplicate_records=outlier,
                 health_score=health_score,
                 top_anomalous_tags=top_tags,
             )
